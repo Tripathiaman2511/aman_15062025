@@ -40,21 +40,33 @@ def generate_report(report_id: str,db: Session):
         db.close()
 
 def compute_uptime_downtime(db:Session):
+    """
+    Compute the uptime and downtime for each store over the last hour, last day, and last week.
+    It considers only business hours as defined in menu_hours (with timezone support).
+    """
     try:
+        # 1. Get all distinct store IDs from status data
         store_ids = db.query(models.StoreStatus.store_id).distinct() #getting all storeid
+        
+        # 2. Get the latest timestamp across all store statuses (assumed to be current reference time) and convert it into UTC datetime object
         current_time = db.query(models.StoreStatus.timestamp_utc).order_by(models.StoreStatus.timestamp_utc.desc()).first()
         timestamp_in_utc=pytz.utc.localize(datetime.strptime(current_time.timestamp_utc, '%Y-%m-%d %H:%M:%S.%f UTC'))
         current_date=timestamp_in_utc.date()
 
         logger.info(f"Current timestamp: {timestamp_in_utc if current_time else 'No data available'}")
 
+        # 4. Iterate over each store
         results = [] 
         for (store_id,) in store_ids:
 
+            # 4.1. Get store's timezone; default to 'America/Chicago' if missing
             timezone_row = db.query(models.Timezone).filter(models.Timezone.store_id == store_id).first()
-            menu_rows = db.query(models.MenuHour).filter(models.MenuHour.store_id == store_id).all()
             tz = timezone_row.timezone_str if timezone_row else "America/Chicago"
+            
+            # 4.2. Get menu hours (i.e., business hours) for the store
+            menu_rows = db.query(models.MenuHour).filter(models.MenuHour.store_id == store_id).all()
 
+            # 4.3. Build DataFrame of menu hours in UTC
             menu_df =pd.DataFrame([{
                 "day_of_week": m.dayOfWeek,
                 "start_time_local": pytz.timezone(tz).localize(datetime.combine(current_date,datetime.strptime(m.start_time_local,'%H:%M:%S').time())).astimezone(pytz.utc),
@@ -67,9 +79,10 @@ def compute_uptime_downtime(db:Session):
 
             logger.info(f"Processing store {store_id} with timezone {tz} menu hours:\n{menu_df.to_string()}")
 
+            # 4.4. Get business hours windows for past hour/day/week in UTC
             windows = time_utils.get_operating_intervals_within_window(menu_df, tz,timestamp_in_utc)
 
-            # Load and process status data
+            # 4.5. Load store status logs and convert to DataFrame
             status_records = db.query(models.StoreStatus).filter(models.StoreStatus.store_id == store_id).order_by(models.StoreStatus.timestamp_utc)
 
             if not status_records:
@@ -88,6 +101,7 @@ def compute_uptime_downtime(db:Session):
             df = df.set_index('timestamp')
             logger.info(f"df index: {df.index.name}")
 
+             # 4.6. Interpolation logic: calculate active/inactive time in each window
             interpolated_results = {
                 "store_id": store_id,
                 "uptime_last_hour": 0, "uptime_last_day": 0, "uptime_last_week": 0,

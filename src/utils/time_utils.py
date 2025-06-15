@@ -8,6 +8,23 @@ from . import logger
 logger = logger.get_logger("time_utils")
 
 def get_operating_intervals_within_window(menu_df:pd.DataFrame, store_tz:str,timestamp_in_utc:datetime)->Dict[str, List[Tuple[datetime, datetime]]]:
+
+    """
+    Computes operating intervals (in UTC) for the past hour, day, and week
+    based on store business hours and time zone.
+
+    Args:
+        menu_df (pd.DataFrame): DataFrame containing store's weekly menu hours.
+                                Columns: day_of_week, start_time_local, end_time_local (in UTC).
+        store_tz (str): Time zone string of the store (e.g., 'America/Chicago').
+        timestamp_in_utc (datetime): Current UTC timestamp to calculate windows backward from.
+
+    Returns:
+        Dict[str, List[Tuple[datetime, datetime]]]: Dictionary with keys
+        'last_hour', 'last_day', and 'last_week'. Each key maps to a list of
+        tuples (start_datetime_utc, end_datetime_utc) representing business hours.
+    """
+
     try:
     
         logger.info(f"Calculating business windows for store timezone: {store_tz} at local time: {timestamp_in_utc}")
